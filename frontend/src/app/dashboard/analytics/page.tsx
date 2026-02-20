@@ -35,6 +35,7 @@ const tooltipStyle = {
   fontSize: "12px",
 };
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const CHART_CARDS = [
   { key: "mealPerUser", title: "Meal Count per Member", icon: BarChart3, color: "brand" },
   { key: "expenseShare", title: "Expense Share", icon: PieIcon, color: "violet" },
