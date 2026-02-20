@@ -1,0 +1,94 @@
+version: "3.9"
+
+services:
+  # ── PostgreSQL ────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: meal_management
+      POSTGRES_USER: meal_user
+      POSTGRES_PASSWORD: meal_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U meal_user -d meal_management"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis ─────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ── Django Backend ────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: ./backend/.env
+    environment:
+      DATABASE_URL: postgres://meal_user:meal_password@db:5432/meal_management
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - backend_static:/app/staticfiles
+    ports:
+      - "8000:8000"
+    command: >
+      sh -c "
+        python manage.py migrate --noinput &&
+        python manage.py seed_permissions &&
+        gunicorn config.wsgi:application
+          --bind 0.0.0.0:8000
+          --workers 4
+          --worker-class gthread
+          --threads 2
+          --timeout 120
+          --access-logfile -
+          --error-logfile -
+      "
+
+  # ── Next.js Frontend ─────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost/api/v1
+    depends_on:
+      - backend
+    ports:
+      - "3000:3000"
+
+  # ── Nginx Reverse Proxy ──────────────────────────────────
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - backend
+      - frontend
+
+volumes:
+  postgres_data:
+  backend_static:
