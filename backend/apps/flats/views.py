@@ -4,12 +4,15 @@ Flat views – CRUD, invite, join, member month status.
 from rest_framework import generics, status, permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework_simplejwt.tokens import RefreshToken
 from .models import Flat, FlatMembership, InviteToken, MemberMonthStatus
 from .serializers import (
     FlatSerializer,
     FlatMembershipSerializer,
     InviteTokenSerializer,
+    InvitePublicSerializer,
     JoinFlatSerializer,
+    RegisterAndJoinSerializer,
     MemberMonthStatusSerializer,
 )
 from apps.permissions.guards import IsOwner, HasFlatPermission
@@ -206,3 +209,62 @@ class MemberMonthStatusUpdateView(APIView):
 
         serializer = MemberMonthStatusSerializer(obj)
         return Response({"success": True, "status": serializer.data})
+
+
+class InviteInfoView(APIView):
+    """Public endpoint – returns invite info without authentication."""
+
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
+    def get(self, request, token):
+        try:
+            invite = InviteToken.objects.select_related("flat").get(token=token)
+        except InviteToken.DoesNotExist:
+            return Response(
+                {"success": False, "errors": {"detail": "Invalid invite token."}},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response({
+            "success": True,
+            "invite": InvitePublicSerializer(invite).data,
+        })
+
+
+class RegisterAndJoinView(APIView):
+    """Public endpoint – register a new account and join a flat in one step."""
+
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
+    def post(self, request):
+        serializer = RegisterAndJoinSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        result = serializer.save()
+        user = result["user"]
+        membership = result["membership"]
+
+        ActivityLog.log(
+            user=user,
+            flat=membership.flat,
+            action=ActivityLog.ActionType.MEMBER_JOIN,
+            description=f"{user.full_name} registered and joined the flat",
+            metadata={"membership_id": str(membership.id)},
+            request=request,
+        )
+
+        # Generate JWT tokens for auto-login
+        refresh = RefreshToken.for_user(user)
+        return Response(
+            {
+                "success": True,
+                "user": {"id": str(user.id), "email": user.email, "full_name": user.full_name},
+                "flat": FlatSerializer(membership.flat).data,
+                "tokens": {
+                    "access": str(refresh.access_token),
+                    "refresh": str(refresh),
+                },
+                "message": "Account created and joined flat successfully.",
+            },
+            status=status.HTTP_201_CREATED,
+        )

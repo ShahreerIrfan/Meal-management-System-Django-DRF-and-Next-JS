@@ -66,6 +66,7 @@ class FlatMembership(TimeStampedModel):
 class InviteToken(TimeStampedModel):
     """
     Invite link token – unique, expires, belongs to a specific flat.
+    Carries a set of permissions to be assigned to users who join.
     """
 
     flat = models.ForeignKey(Flat, on_delete=models.CASCADE, related_name="invites")
@@ -79,6 +80,12 @@ class InviteToken(TimeStampedModel):
     max_uses = models.PositiveIntegerField(default=1)
     times_used = models.PositiveIntegerField(default=0)
     is_active = models.BooleanField(default=True)
+    granted_permissions = models.ManyToManyField(
+        "permissions.AppPermission",
+        blank=True,
+        related_name="invite_tokens",
+        help_text="Permissions to assign to members who join via this invite.",
+    )
 
     class Meta:
         db_table = "invite_tokens"

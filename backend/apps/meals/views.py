@@ -7,6 +7,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from apps.permissions.guards import HasFlatPermission, flat_permission_required
 from apps.core.models import ActivityLog
+from apps.flats.models import FlatMembership
+from apps.flats.serializers import FlatMembershipSerializer
 from .models import MealEntry
 from .serializers import (
     MealCellUpdateSerializer,
@@ -18,6 +20,7 @@ from .calculation_engine import (
     recalculate_month,
     get_user_balances,
     get_month_summary,
+    get_grid_members,
     lock_month,
     unlock_month,
     is_month_locked,
@@ -50,6 +53,7 @@ class MealGridView(APIView):
         )
         summary = get_month_summary(request.flat, year, month)
         balances = get_user_balances(request.flat, year, month)
+        grid_members = get_grid_members(request.flat, year, month)
 
         return Response(
             {
@@ -57,6 +61,7 @@ class MealGridView(APIView):
                 "entries": MealEntrySerializer(entries, many=True).data,
                 "summary": summary,
                 "balances": balances,
+                "members": FlatMembershipSerializer(grid_members, many=True).data,
             }
         )
 
@@ -95,7 +100,7 @@ class MealCellUpdateView(APIView):
             flat=request.flat,
             action=ActivityLog.ActionType.MEAL_ADD if created else ActivityLog.ActionType.MEAL_UPDATE,
             description=f"{'Added' if created else 'Updated'} meal entry for {d['date']} (count: {d['meal_count']})",
-            metadata={"user_id": str(d["user_id"]), "date": str(d["date"]), "meal_count": d["meal_count"]},
+            metadata={"user_id": str(d["user_id"]), "date": str(d["date"]), "meal_count": str(d["meal_count"])},
             request=request,
         )
 

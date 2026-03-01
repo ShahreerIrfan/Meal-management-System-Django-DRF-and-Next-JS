@@ -41,7 +41,7 @@ export const flatApi = {
   removeMember: (membershipId: string) =>
     api.post(`/flats/members/${membershipId}/remove/`),
 
-  createInvite: (data: { max_uses?: number; expires_at?: string }) =>
+  createInvite: (data: { max_uses?: number; expires_at?: string; permission_codenames?: string[] }) =>
     api.post<InviteToken>("/flats/invite/", data),
 
   listInvites: () =>
@@ -57,8 +57,23 @@ export const flatApi = {
       data: extractResults<InviteToken>(res.data),
     })),
 
+  // Public invite info (no auth required)
+  getInviteInfo: (token: string) =>
+    api.get<{ success: boolean; invite: { token: string; flat_name: string; is_valid: boolean; expires_at: string } }>(
+      `/flats/invite/${token}/info/`
+    ),
+
   joinFlat: (token: string) =>
     api.post<{ success: boolean; flat: Flat; message: string }>("/flats/join/", { token }),
+
+  registerAndJoin: (data: { email: string; password: string; full_name?: string; token: string }) =>
+    api.post<{
+      success: boolean;
+      user: { id: string; email: string; full_name: string };
+      flat: Flat;
+      tokens: { access: string; refresh: string };
+      message: string;
+    }>("/flats/register-and-join/", data),
 
   // Member Month Status (onboard/offboard)
   getMemberMonthStatuses: (year: number, month: number) =>

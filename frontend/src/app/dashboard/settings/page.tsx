@@ -32,10 +32,10 @@ export default function SettingsPage() {
   const updateFlat = useMutation({
     mutationFn: () => flatApi.updateDetail({ name, address }),
     onSuccess: () => {
-      toast.success("Flat updated");
+      toast.success("Flat settings saved successfully!");
       queryClient.invalidateQueries({ queryKey: ["flatDetail"] });
     },
-    onError: () => toast.error("Update failed"),
+    onError: () => toast.error("Failed to save settings"),
   });
 
   const { data: invitesData } = useQuery({

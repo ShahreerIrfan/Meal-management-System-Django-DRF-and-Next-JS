@@ -6,14 +6,18 @@ import toast from "react-hot-toast";
 import { flatApi, permissionApi } from "@/lib/api";
 import { usePermission } from "@/hooks";
 import type { FlatMembership, AppPermission, MemberMonthStatus } from "@/lib/types";
-import { UserPlus, Shield, Trash2, Copy, Check, Users, X, Loader2, Crown, CalendarOff, CalendarCheck, ChevronLeft, ChevronRight } from "lucide-react";
+import { UserPlus, Shield, Trash2, Copy, Check, Users, X, Loader2, Crown, CalendarOff, CalendarCheck, ChevronLeft, ChevronRight, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MONTH_NAMES } from "@/lib/utils";
+import { ConfirmDialog } from "@/components";
 
 export default function MembersPage() {
   const queryClient = useQueryClient();
   const canManagePerms = usePermission("manage_permissions");
   const canInvite = usePermission("create_invite");
+
+  const [memberSearch, setMemberSearch] = useState("");
+  const [removeTarget, setRemoveTarget] = useState<FlatMembership | null>(null);
 
   const now = new Date();
   const [statusYear, setStatusYear] = useState(now.getFullYear());
@@ -68,11 +72,43 @@ export default function MembersPage() {
   };
 
   const [inviteUrl, setInviteUrl] = useState("");
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [invitePerms, setInvitePerms] = useState<string[]>([]);
+
+  const { data: allPermsForInvite } = useQuery({
+    queryKey: ["allPermissionsForInvite"],
+    queryFn: () => permissionApi.getAll().then((r) => r.data),
+    enabled: canInvite,
+  });
+  const allInvitePerms: AppPermission[] = Array.isArray(allPermsForInvite) ? allPermsForInvite : [];
+
+  const invitePermsByModule: Record<string, AppPermission[]> = {};
+  allInvitePerms.forEach((p) => {
+    if (!invitePermsByModule[p.module]) invitePermsByModule[p.module] = [];
+    invitePermsByModule[p.module].push(p);
+  });
+
+  const toggleInvitePerm = (codename: string) => {
+    setInvitePerms((prev: string[]) =>
+      prev.includes(codename) ? prev.filter((p: string) => p !== codename) : [...prev, codename]
+    );
+  };
+
+  const selectAllInvitePerms = () => {
+    setInvitePerms(allInvitePerms.map((p) => p.codename));
+  };
+
+  const clearAllInvitePerms = () => {
+    setInvitePerms([]);
+  };
+
   const inviteMutation = useMutation({
-    mutationFn: () => flatApi.createInvite({ max_uses: 10 }),
+    mutationFn: () => flatApi.createInvite({ max_uses: 10, permission_codenames: invitePerms }),
     onSuccess: (res) => {
       const url = res.data.invite_url || `http://localhost:3000/join/${res.data.token}`;
       setInviteUrl(url);
+      setShowInviteModal(false);
+      setInvitePerms([]);
       toast.success("Invite link created!");
     },
     onError: () => toast.error("Failed to create invite"),
@@ -81,10 +117,11 @@ export default function MembersPage() {
   const removeMutation = useMutation({
     mutationFn: flatApi.removeMember,
     onSuccess: () => {
-      toast.success("Member removed");
+      toast.success("Member removed successfully!");
+      setRemoveTarget(null);
       queryClient.invalidateQueries({ queryKey: ["members"] });
     },
-    onError: () => toast.error("Failed to remove"),
+    onError: () => toast.error("Failed to remove member"),
   });
 
   const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
@@ -109,10 +146,10 @@ export default function MembersPage() {
   const savePerm = useMutation({
     mutationFn: () => permissionApi.setMember(editingMemberId!, editPerms),
     onSuccess: () => {
-      toast.success("Permissions updated");
+      toast.success("Permissions saved successfully!");
       setEditingMemberId(null);
     },
-    onError: () => toast.error("Failed to update permissions"),
+    onError: () => toast.error("Failed to save permissions"),
   });
 
   const [copied, setCopied] = useState(false);
@@ -143,11 +180,10 @@ export default function MembersPage() {
         </div>
         {canInvite && (
           <button
-            onClick={() => inviteMutation.mutate()}
-            disabled={inviteMutation.isPending}
+            onClick={() => setShowInviteModal(true)}
             className="btn-primary flex items-center gap-2 !rounded-xl"
           >
-            {inviteMutation.isPending ? <Loader2 size={16} className="animate-spin" /> : <UserPlus size={16} />}
+            <UserPlus size={16} />
             Generate Invite Link
           </button>
         )}
@@ -243,6 +279,25 @@ export default function MembersPage() {
         </div>
       )}
 
+      {/* Search members */}
+      {members.length > 0 && (
+        <div className="relative max-w-md">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+          <input
+            type="text"
+            value={memberSearch}
+            onChange={(e) => setMemberSearch(e.target.value)}
+            placeholder="Search members…"
+            className="input-base pl-11 !py-2.5"
+          />
+          {memberSearch && (
+            <button onClick={() => setMemberSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800">
+              <X size={14} className="text-gray-400" />
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Members list */}
       {isLoading ? (
         <div className="h-64 skeleton" />
@@ -254,7 +309,13 @@ export default function MembersPage() {
         </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 stagger-children">
-          {members.map((m) => (
+          {members
+            .filter((m) => {
+              if (!memberSearch.trim()) return true;
+              const q = memberSearch.toLowerCase();
+              return m.user.full_name.toLowerCase().includes(q) || m.user.email.toLowerCase().includes(q);
+            })
+            .map((m) => (
             <div
               key={m.id}
               className="glass-card rounded-2xl p-5 card-hover group"
@@ -297,7 +358,7 @@ export default function MembersPage() {
                   )}
                   {m.role !== "owner" && (
                     <button
-                      onClick={() => removeMutation.mutate(m.id)}
+                      onClick={() => setRemoveTarget(m)}
                       className="p-2 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all duration-150"
                       title="Remove Member"
                     >
@@ -381,6 +442,123 @@ export default function MembersPage() {
           </div>
         </div>
       )}
+
+      {/* Invite permission selection modal */}
+      {showInviteModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] overflow-y-auto border border-gray-200 dark:border-gray-800 animate-fadeInScale">
+            <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-800/80 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
+                  <UserPlus size={16} className="text-emerald-600 dark:text-emerald-400" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-gray-900 dark:text-white">Create Invite Link</h2>
+                  <p className="text-[10px] text-gray-400">Select permissions for the new member</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowInviteModal(false)}
+                className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 dark:hover:text-gray-200 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-6 space-y-5">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Member Access Permissions
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={selectAllInvitePerms}
+                    className="text-[10px] font-bold uppercase tracking-wider text-brand-600 dark:text-brand-400 hover:underline"
+                  >
+                    Select All
+                  </button>
+                  <span className="text-gray-300 dark:text-gray-600">|</span>
+                  <button
+                    onClick={clearAllInvitePerms}
+                    className="text-[10px] font-bold uppercase tracking-wider text-gray-400 hover:underline"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+              {Object.entries(invitePermsByModule).map(([mod, perms]) => (
+                <div key={mod}>
+                  <h4 className="text-[11px] font-bold uppercase text-gray-400 dark:text-gray-500 mb-2.5 tracking-wider">
+                    {mod}
+                  </h4>
+                  <div className="space-y-1">
+                    {perms.map((p) => (
+                      <label
+                        key={p.codename}
+                        className={cn(
+                          "flex items-center gap-3 cursor-pointer rounded-xl px-3.5 py-2.5 transition-all duration-150 border",
+                          invitePerms.includes(p.codename)
+                            ? "bg-brand-50/50 dark:bg-brand-900/10 border-brand-200 dark:border-brand-800/40"
+                            : "border-transparent hover:bg-gray-50 dark:hover:bg-gray-800/50"
+                        )}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={invitePerms.includes(p.codename)}
+                          onChange={() => toggleInvitePerm(p.codename)}
+                          className="h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                        />
+                        <div>
+                          <span className="text-sm font-medium text-gray-900 dark:text-white">{p.label}</span>
+                          <span className="text-[10px] text-gray-400 ml-2 font-mono">({p.codename})</span>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              {allInvitePerms.length === 0 && (
+                <div className="py-6 text-center text-sm text-gray-400">
+                  <Loader2 size={20} className="animate-spin mx-auto mb-2" />
+                  Loading permissions...
+                </div>
+              )}
+            </div>
+            <div className="px-6 py-4 border-t border-gray-100 dark:border-gray-800/80 flex items-center justify-between">
+              <p className="text-xs text-gray-400">
+                {invitePerms.length} permission{invitePerms.length !== 1 ? "s" : ""} selected
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowInviteModal(false)}
+                  className="btn-ghost"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => inviteMutation.mutate()}
+                  disabled={inviteMutation.isPending}
+                  className="btn-primary flex items-center gap-2"
+                >
+                  {inviteMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <UserPlus size={14} />}
+                  {inviteMutation.isPending ? "Creating…" : "Create Invite"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Remove member confirmation */}
+      <ConfirmDialog
+        open={!!removeTarget}
+        onClose={() => setRemoveTarget(null)}
+        onConfirm={() => removeTarget && removeMutation.mutate(removeTarget.id)}
+        title="Remove Member"
+        message={`Remove ${removeTarget?.user.full_name} from this flat? Their data will be preserved but they will lose access.`}
+        confirmText="Remove"
+        variant="danger"
+        loading={removeMutation.isPending}
+      />
     </div>
   );
 }

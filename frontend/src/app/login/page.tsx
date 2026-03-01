@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import toast from "react-hot-toast";
 import { authApi } from "@/lib/api";
@@ -9,7 +9,17 @@ import { useAuthStore } from "@/lib/store";
 import { LogIn, Mail, Lock, ArrowRight } from "lucide-react";
 
 export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginContent />
+    </Suspense>
+  );
+}
+
+function LoginContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectTo = searchParams.get("redirect") || "/dashboard";
   const { tokens, setTokens } = useAuthStore();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -18,9 +28,9 @@ export default function LoginPage() {
   // Redirect to dashboard if already logged in
   useEffect(() => {
     if (tokens) {
-      router.push("/dashboard");
+      router.push(redirectTo);
     }
-  }, [tokens, router]);
+  }, [tokens, router, redirectTo]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,7 +39,7 @@ export default function LoginPage() {
       const res = await authApi.login(email, password);
       setTokens({ access: res.data.access, refresh: res.data.refresh });
       toast.success("Login successful!");
-      router.push("/dashboard");
+      router.push(redirectTo);
     } catch (err: unknown) {
       const error = err as { response?: { data?: { errors?: { detail?: string } } } };
       toast.error(error.response?.data?.errors?.detail || "Login failed");

@@ -20,6 +20,8 @@ import {
   Sun,
   ChevronRight,
   ScrollText,
+  UserCircle,
+  Keyboard,
 } from "lucide-react";
 
 const NAV_ITEMS = [
@@ -29,6 +31,7 @@ const NAV_ITEMS = [
   { label: "Analytics", href: "/dashboard/analytics", icon: BarChart3, perm: "view_analytics" },
   { label: "Members", href: "/dashboard/members", icon: Users, perm: "view_members" },
   { label: "Activity Log", href: "/dashboard/activity", icon: ScrollText, perm: null },
+  { label: "Profile", href: "/dashboard/profile", icon: UserCircle, perm: null },
   { label: "Settings", href: "/dashboard/settings", icon: Settings, perm: null },
 ];
 

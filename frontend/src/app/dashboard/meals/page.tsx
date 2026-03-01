@@ -3,12 +3,12 @@
 import { useState, useCallback, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
-import { mealApi, flatApi } from "@/lib/api";
-import { useDebounce } from "@/hooks";
+import { mealApi } from "@/lib/api";
+import { useDebounce, useKeyboardShortcut } from "@/hooks";
 import { getDatesInMonth, MONTH_NAMES, formatCurrency } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import type { MealEntry, FlatMembership, UserBalance, MonthSummary } from "@/lib/types";
-import { Lock, Unlock, ChevronLeft, ChevronRight, UtensilsCrossed, ArrowUpRight, ArrowDownRight, CalendarDays } from "lucide-react";
+import { Lock, Unlock, ChevronLeft, ChevronRight, UtensilsCrossed, ArrowUpRight, ArrowDownRight, CalendarDays, Download } from "lucide-react";
 import { usePermission } from "@/hooks";
 
 export default function MealsPage() {
@@ -25,15 +25,10 @@ export default function MealsPage() {
     queryFn: () => mealApi.getGrid(year, month).then((r) => r.data),
   });
 
-  const { data: membersData } = useQuery({
-    queryKey: ["members"],
-    queryFn: () => flatApi.getMembers().then((r) => r.data),
-  });
-
   const entries: MealEntry[] = gridData?.entries || [];
   const summary: MonthSummary | undefined = gridData?.summary;
   const balances: UserBalance[] = gridData?.balances || [];
-  const members: FlatMembership[] = Array.isArray(membersData) ? membersData : [];
+  const members: FlatMembership[] = gridData?.members || [];
 
   const dates = useMemo(() => getDatesInMonth(year, month), [year, month]);
 
@@ -114,6 +109,38 @@ export default function MealsPage() {
     return dateStr === today;
   };
 
+  // Quick set meal count
+  const quickSetMeal = (userId: string, date: string, count: number) => {
+    const key = `${userId}-${date}`;
+    setLocalEdits((prev: Record<string, string>) => ({ ...prev, [key]: String(count) }));
+    saveCellRaw(userId, date, count);
+  };
+
+  // Export CSV
+  const exportMealsCSV = () => {
+    if (members.length === 0) { toast.error("No data to export"); return; }
+    const header = ["Date", ...members.map((m) => m.user.full_name)].join(",") + "\n";
+    const rows = dates.map((date) => {
+      const row = [date, ...members.map((m) => getCellValue(m.user.id, date) || "0")];
+      return row.join(",");
+    }).join("\n");
+    const blob = new Blob([header + rows], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `meals_${year}_${month}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("Meals CSV exported!");
+  };
+
+  // Keyboard shortcuts: ← prev month, → next month
+  useKeyboardShortcut([
+    { key: "ArrowLeft", alt: true, handler: prevMonth },
+    { key: "ArrowRight", alt: true, handler: nextMonth },
+    { key: "e", handler: exportMealsCSV },
+  ]);
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -127,7 +154,7 @@ export default function MealsPage() {
             Click any cell to edit — auto-saves instantly
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <div className="flex items-center bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-1">
             <button onClick={prevMonth} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
               <ChevronLeft size={16} className="text-gray-500" />
@@ -139,6 +166,11 @@ export default function MealsPage() {
               <ChevronRight size={16} className="text-gray-500" />
             </button>
           </div>
+
+          <button onClick={exportMealsCSV} className="btn-ghost flex items-center gap-2" title="Export CSV">
+            <Download size={16} />
+            <span className="hidden sm:inline">Export</span>
+          </button>
 
           {canLock && summary && (
             <button
@@ -249,7 +281,7 @@ export default function MealsPage() {
                     <tr
                       key={date}
                       className={cn(
-                        "hover:bg-brand-50/30 dark:hover:bg-brand-900/10 transition-colors",
+                        "group hover:bg-brand-50/30 dark:hover:bg-brand-900/10 transition-colors",
                         today && "bg-brand-50/50 dark:bg-brand-900/15"
                       )}
                     >
@@ -274,15 +306,35 @@ export default function MealsPage() {
                       </td>
                       {members.map((m) => (
                         <td key={m.user.id} className="px-2 py-1.5 text-center meal-cell">
-                          <input
-                            type="number"
-                            step="0.5"
-                            min="0"
-                            max="10"
-                            value={getCellValue(m.user.id, date)}
-                            onChange={(e) => handleCellChange(m.user.id, date, e.target.value)}
-                            disabled={!canAddMeal || !!summary?.is_locked}
-                          />
+                          <div className="flex flex-col items-center gap-0.5">
+                            <input
+                              type="number"
+                              step="0.5"
+                              min="0"
+                              max="10"
+                              value={getCellValue(m.user.id, date)}
+                              onChange={(e) => handleCellChange(m.user.id, date, e.target.value)}
+                              disabled={!canAddMeal || !!summary?.is_locked}
+                            />
+                            {canAddMeal && !summary?.is_locked && (
+                              <div className="flex gap-px opacity-0 group-hover:opacity-100 transition-opacity">
+                                {[0, 1, 2, 3].map((n) => (
+                                  <button
+                                    key={n}
+                                    onClick={() => quickSetMeal(m.user.id, date, n)}
+                                    className={cn(
+                                      "w-5 h-4 text-[9px] font-bold rounded transition-all",
+                                      getCellValue(m.user.id, date) === String(n)
+                                        ? "bg-brand-500 text-white"
+                                        : "bg-gray-100 dark:bg-gray-800 text-gray-400 hover:bg-brand-100 dark:hover:bg-brand-900/30 hover:text-brand-600"
+                                    )}
+                                  >
+                                    {n}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
                         </td>
                       ))}
                     </tr>

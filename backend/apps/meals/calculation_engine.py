@@ -91,7 +91,7 @@ def get_user_balances(flat: Flat, year: int, month: int) -> List[Dict]:
     summary = recalculate_month(flat, year, month)
     meal_rate = summary.meal_rate
 
-    members = FlatMembership.objects.filter(flat=flat, is_active=True).select_related("user")
+    members = get_grid_members(flat, year, month)
 
     # Aggregate meals per user
     user_meals = dict(
@@ -166,6 +166,45 @@ def unlock_month(flat: Flat, year: int, month: int) -> MonthlySummary:
     summary.locked_at = None
     summary.save(update_fields=["is_locked", "locked_by", "locked_at", "updated_at"])
     return summary
+
+
+def get_grid_members(flat: Flat, year: int, month: int):
+    """
+    Return memberships to display as columns for the given month.
+    Includes all active members PLUS any inactive members who have
+    meal entries or expenses in that month.
+    """
+    active = FlatMembership.objects.filter(
+        flat=flat, is_active=True
+    ).select_related("user")
+
+    # User IDs that have meal entries this month
+    users_with_meals = set(
+        MealEntry.objects.filter(
+            flat=flat, date__year=year, date__month=month
+        ).values_list("user_id", flat=True)
+    )
+    # User IDs that have expenses this month
+    users_with_expenses = set(
+        Expense.objects.filter(
+            flat=flat, date__year=year, date__month=month
+        ).values_list("paid_by_id", flat=True)
+    )
+    users_with_data = users_with_meals | users_with_expenses
+
+    active_user_ids = set(active.values_list("user_id", flat=True))
+    inactive_with_data_ids = users_with_data - active_user_ids
+
+    if not inactive_with_data_ids:
+        return active
+
+    inactive_with_data = FlatMembership.objects.filter(
+        flat=flat, user_id__in=inactive_with_data_ids
+    ).select_related("user")
+
+    # Combine querysets
+    combined_ids = [m.id for m in active] + [m.id for m in inactive_with_data]
+    return FlatMembership.objects.filter(id__in=combined_ids).select_related("user").order_by("user__full_name")
 
 
 def is_month_locked(flat: Flat, year: int, month: int) -> bool:

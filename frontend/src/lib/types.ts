@@ -123,6 +123,7 @@ export interface MealGridResponse {
   entries: MealEntry[];
   summary: MonthSummary;
   balances: UserBalance[];
+  members: FlatMembership[];
 }
 
 // ----- Expenses -----
